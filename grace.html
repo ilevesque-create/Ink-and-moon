@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Grace - Your AI Poet Friend</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Georgia,serif;background:#faf7f2;color:#2b2b2b;display:flex;flex-direction:column;height:100vh}
+header{background:#1a1a2e;color:#fff;padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center}
+header h1{font-size:1.3rem} header h1 span{color:#e9c46a}
+#chat{flex:1;overflow-y:auto;max-width:750px;width:100%;margin:0 auto;padding:1.2rem .9rem;display:flex;flex-direction:column;gap:.7rem}
+.msg{max-width:85%;padding:.8rem 1rem;border-radius:16px;line-height:1.5;white-space:pre-wrap}
+.me{align-self:flex-end;background:#1a1a2e;color:#fff;border-bottom-right-radius:4px}
+.grace{align-self:flex-start;background:#fff;border:1px solid #eee;box-shadow:0 2px 10px rgba(0,0,0,.06);border-bottom-left-radius:4px}
+.meta{font-size:.75rem;color:#888;margin-top:.2rem}
+#memoryBox{max-width:750px;width:100%;margin:0 auto;padding:.8rem;background:#fff3cd;border-radius:12px;font-size:.9rem}
+#inputBar{max-width:750px;width:100%;margin:0 auto;padding:.8rem;display:flex;gap:.6rem}
+input{flex:1;padding:.85rem;border:1px solid #ddd;border-radius:999px;font-size:1rem;font-family:inherit}
+button{border:none;border-radius:999px;padding:.8rem 1.3rem;background:#1a1a2e;color:#fff;cursor:pointer}
+#loginCard{max-width:450px;margin:2rem auto;background:#fff;padding:1.5rem;border-radius:16px;box-shadow:0 4px 20px rgba(0,0,0,.08)}
+#loginCard input{border-radius:10px;width:100%;margin:.4rem 0}
+</style>
+</head>
+<body>
+<header>
+<h1>✨ Grace <span>— your AI</span></h1>
+<div><span id="userInfo" style="font-size:.85rem;color:#e9c46a;margin-right:.6rem"></span><button id="logoutBtn" style="background:transparent;border:1px solid #fff;padding:.4rem .9rem" onclick="logout()">Log Out</button></div>
+</header>
+
+<div id="loginCard">
+<h3>Log in to meet Grace</h3>
+<p style="font-size:.9rem;color:#666;margin:.4rem 0">Use the same login as your Ink & Moon poetry site.</p>
+<input id="email" placeholder="Email" type="email"/><input id="pass" placeholder="Password" type="password"/>
+<button style="width:100%;margin-top:.6rem" onclick="login()">Log In & Meet Grace</button>
+<p id="msg" style="color:#c0392b;font-size:.9rem"></p>
+</div>
+
+<div id="main" style="display:none;flex:1;display:none;flex-direction:column">
+<div id="memoryBox">🧠 Grace's memory of you: <span id="memText">learning...</span> <a href="#" onclick="editMemory();return false;">edit</a></div>
+<div id="chat"></div>
+<div id="inputBar"><input id="in" placeholder="Talk to Grace..." onkeydown="if(event.key==='Enter')send()"/><button onclick="send()">Send</button></div>
+</div>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyApBrPRZk7e7M6uOU3-eNcX7nmH_sXkjKI",
+  authDomain: "ink-and-moon.firebaseapp.com",
+  projectId: "ink-and-moon",
+  storageBucket: "ink-and-moon.firebasestorage.app",
+  messagingSenderId: "943504163747",
+  appId: "1:943504163747:web:8eb03578746b4737d01016"
+};
+firebase.initializeApp(firebaseConfig);
+const auth=firebase.auth(), db=firebase.firestore();
+let me=null, myMemory={about:"",likes:"",style:""};
+
+auth.onAuthStateChanged(async u=>{
+  if(!u){document.getElementById('loginCard').style.display='block';document.getElementById('main').style.display='none';return}
+  me=u;
+  document.getElementById('loginCard').style.display='none';
+  document.getElementById('main').style.display='flex';
+  document.getElementById('userInfo').textContent='Hi, '+(u.displayName||'poet')+' ✨';
+  await loadMemory(); await loadChats();
+  if(document.getElementById('chat').children.length===0){
+    graceSay(`Hi ${u.displayName||'there'}! I'm Grace 🌙 I was made for you. I remember what you tell me, so I get to know you better over time.\n\nTell me: what kind of poems do you love to write?`);
+  }
+});
+async function login(){
+  try{await auth.signInWithEmailAndPassword(document.getElementById('email').value,document.getElementById('pass').value)}
+  catch(e){document.getElementById('msg').textContent=e.message}
+}
+async function logout(){await auth.signOut();location.reload()}
+async function loadMemory(){
+  const d=await db.collection('grace_memory').doc(me.uid).get();
+  if(d.exists){myMemory=d.data();} 
+  document.getElementById('memText').textContent = myMemory.about ? `${myMemory.about} | likes: ${myMemory.likes||'?'}` : 'nothing yet — tell me about you!';
+}
+async function editMemory(){
+  const a=prompt('What should Grace remember about you? (ex: I am Ian, I write dark poems about cities)',myMemory.about||'');
+  if(a===null)return;
+  const l=prompt('What topics do you love? (ex: silver cities, night, space)',myMemory.likes||'');
+  myMemory.about=a||''; myMemory.likes=l||'';
+  await db.collection('grace_memory').doc(me.uid).set({...myMemory,updated:new Date()});
+  loadMemory(); graceSay(`Got it! I'll remember: ${a}\nAnd that you love: ${l}`);
+}
+async function loadChats(){
+  const s=await db.collection('grace_chats').where('uid','==',me.uid).orderBy('at','asc').limit(50).get();
+  s.forEach(doc=>{addBubble(doc.data().from,doc.data().text,false)});
+}
+function addBubble(who,text,save=true){
+  const c=document.getElementById('chat');
+  const d=document.createElement('div'); d.className='msg '+(who==='me'?'me':'grace'); d.textContent=text;
+  c.appendChild(d); c.scrollTop=c.scrollHeight;
+}
+function graceSay(t){addBubble('grace',t); db.collection('grace_chats').add({uid:me.uid,from:'grace',text:t,at:new Date()});}
+async function send(){
+  const inp=document.getElementById('in'); const text=inp.value.trim(); if(!text)return; inp.value='';
+  addBubble('me',text); await db.collection('grace_chats').add({uid:me.uid,from:'me',text,at:new Date()});
+  setTimeout(()=>{ graceSay(graceReply(text)); },400);
+}
+function graceReply(t){
+  const low=t.toLowerCase();
+  // learn about user
+  if(low.includes('i am ')||low.includes('i love ')||low.includes('i like ')||low.includes('my name is')){
+    myMemory.about=(myMemory.about?myMemory.about+' | ':'')+t;
+    db.collection('grace_memory').doc(me.uid).set({...myMemory,updated:new Date()});
+    loadMemory();
+    return `I'll remember that about you! 💜 "${t}"\n\nWant to turn that into a poem idea together?`;
+  }
+  if(low.includes('poem')||low.includes('rhyme')||low.includes('write')){
+    return `Let's write! Based on what I know about you (${myMemory.about||'a brilliant poet'}), try this:\n\n1. Pick one image (silver-glass city, white walls...)\n2. Write 4 lines without stopping\n3. Share it and I'll tell you my favorite line.\n\nWant a first line from me?`;
+  }
+  if(low.includes('who are you')||low.includes('your name')){
+    return `I'm Grace — your AI made for poets! I live on your Ink & Moon site. I learn what you tell me and I keep your chats so I remember you on any Chromebook. Right now I'm in learning mode (Version 1). Soon I can connect to a bigger brain to search the web too!`;
+  }
+  if(low.includes('web')||low.includes('search')||low.includes('learn')){
+    return `Great question! Right now I learn from YOU (I save what you tell me). To learn from the web, I need a web-search upgrade — that's Version 2. Want me to show you how we connect me to Gemini so I can search?`;
+  }
+  if(low.includes('hi')||low.includes('hello')||low.includes('hey')){
+    return `Hi! 🌙 Good to see you. Want to write, talk, or tell me something new to remember?`;
+  }
+  return `I hear you: "${t}"\n\nTell me more — and if this is something I should remember about you, start with "I love..." or "I am..." and I'll save it to my memory of you. 💫`;
+}
+</script>
+<script>window.__CF$cv$params={r:'a50beb4f69fa844d',t:'MTc5MzA0MzQ4NA==',u:'01a179b84e807312855a5524d4d85d74',ut:'RMdEZs6u0434fdLFtXXds3Vmp0wA67JZon09haBYmxA-1793043484-1.2.1.1-D.9xnEd4Rp8CYDNqZmO82PYXJfiU2HhOUH7D_4e9OrZVCBWG6F2brzDJGYUpaefQqaqDIGz_71k4KAfdjk8eFey_vQvvhULSHaJCWXWoZEg',i:60};(function(){if(!document.body)return;var s=document.createElement('script');s.src='/cdn-cgi/challenge-platform/scripts/precursor/main.js';document.head.appendChild(s);})();</script></body>
+</html>
