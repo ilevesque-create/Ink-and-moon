@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Ink & Moon - Shared Poetry Community</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Georgia,serif;background:#faf7f2;color:#2b2b2b;line-height:1.6}
+header{background:#1a1a2e;color:#fff;padding:1rem 2rem;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:10;flex-wrap:wrap;gap:.5rem}
+header h1{font-size:1.5rem} header h1 span{color:#e9c46a}
+button{cursor:pointer;border:none;border-radius:999px;padding:.6rem 1.2rem;font-size:.95rem}
+.btn-light{background:#e9c46a;color:#1a1a2e;font-weight:bold}
+.btn-outline{background:transparent;color:#fff;border:1px solid #fff}
+.btn-dark{background:#1a1a2e;color:#fff}
+.btn-small{padding:.35rem .8rem;font-size:.85rem}
+.hero{text-align:center;padding:2.5rem 1.5rem;background:linear-gradient(135deg,#1a1a2e,#533483,#e9c46a);color:white}
+.container{max-width:800px;margin:0 auto;padding:2rem 1rem}
+.card{background:white;border-radius:16px;padding:1.5rem;margin-bottom:1.2rem;box-shadow:0 4px 20px rgba(0,0,0,.07)}
+input,textarea{width:100%;padding:.8rem;border:1px solid #ddd;border-radius:10px;margin:.4rem 0;font-family:inherit;font-size:1rem}
+textarea{min-height:130px}
+#setupWarn{background:#fff3cd;border:2px dashed #e9c46a;padding:1rem;border-radius:12px;margin-bottom:1rem}
+.poem-text{white-space:pre-wrap;font-size:1.1rem;margin:.8rem 0}
+.meta{color:#888;font-size:.85rem;margin-bottom:.5rem}
+.actions{display:flex;gap:.6rem;align-items:center;margin-top:.8rem}
+.like-btn{background:#ffe8e8;border:1px solid #ffafaf}
+.like-btn.liked{background:#ff5d5d;color:white}
+.tabs{display:flex;gap:1rem;margin-bottom:1rem}.tabs button{flex:1;background:#eee}.tabs button.active{background:#1a1a2e;color:white}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<header>
+<h1>🌙 Ink <span>& Moon</span></h1>
+<div style="display:flex;gap:.6rem;align-items:center">
+<span id="userInfo" style="color:#e9c46a;font-size:.9rem"></span>
+<button class="btn-outline" id="authBtn" onclick="document.getElementById('authBox').scrollIntoView()">Sign Up / Log In</button>
+<button class="btn-outline hidden" id="logoutBtn" onclick="logout()">Log Out</button>
+</div>
+</header>
+
+<div class="hero">
+<h2>Where poems find people.</h2>
+<p>Shared across all your Chromebooks ❤️ Log in anywhere to see the same poems.</p>
+<button class="btn-light" onclick="document.getElementById('writeBox').scrollIntoView()">+ Write Poem</button>
+<p id="status" style="margin-top:.8rem;font-size:.9rem;opacity:.9">Connecting...</p>
+</div>
+
+<div class="container">
+
+<div id="setupWarn" class="card">
+<b>⚠️ Setup needed (one time):</b><br>
+This file needs your free Firebase keys to sync across Chromebooks.
+Follow my 5-minute setup steps I sent you, then replace the <code>firebaseConfig</code> section at the bottom of this file.
+The site will work on any Chromebook after that.
+</div>
+
+<div class="card" id="authBox">
+<div class="tabs">
+<button id="tabSignup" class="active" onclick="showTab('signup')">Sign Up</button>
+<button id="tabLogin" onclick="showTab('login')">Log In</button>
+</div>
+<div id="signupForm">
+<input id="suName" placeholder="Display name (ex: Luna)" />
+<input id="suEmail" placeholder="Email" type="email" />
+<input id="suPass" type="password" placeholder="Password (6+ characters)" />
+<button class="btn-dark" style="width:100%;margin-top:.6rem" onclick="signup()">Create Account</button>
+</div>
+<div id="loginForm" style="display:none">
+<input id="liEmail" placeholder="Email" type="email" />
+<input id="liPass" type="password" placeholder="Password" />
+<button class="btn-dark" style="width:100%;margin-top:.6rem" onclick="login()">Log In</button>
+</div>
+<p id="authMsg" style="color:#c0392b;margin-top:.5rem"></p>
+</div>
+
+<div class="card" id="writeBox">
+<h3>New Poem ✍️</h3>
+<input id="poemTitle" placeholder="Poem title..." />
+<textarea id="poemText" placeholder="Write your poem here..."></textarea>
+<button class="btn-dark" style="width:100%" onclick="publishPoem()">Publish to Everyone 🌍</button>
+</div>
+
+<input id="search" placeholder="🔍 Search poems..." oninput="renderLocal()" style="margin-bottom:1rem" />
+<div id="feed"></div>
+</div>
+
+<script>
+// ===== STEP 4: PASTE YOUR KEYS HERE =====
+const firebaseConfig = {
+  apiKey: "AIzaSyApBrPRZk7e7M6uOU3-eNcX7nmH_sXkjKI",
+  authDomain: "ink-and-moon.firebaseapp.com",
+  projectId: "ink-and-moon",
+  storageBucket: "ink-and-moon.firebasestorage.app",
+  messagingSenderId: "943504163747",
+  appId: "1:943504163747:web:8eb03578746b4737d01016"
+};
+// =======================================
+
+let auth, db, currentUser=null, allPoems=[];
+const isConfigured = firebaseConfig.apiKey !== "PASTE_YOURS_HERE";
+
+if(!isConfigured){
+  document.getElementById('status').textContent = "⚠️ Not connected yet - add Firebase keys";
+} else {
+  document.getElementById('setupWarn').style.display='none';
+  firebase.initializeApp(firebaseConfig);
+  auth = firebase.auth();
+  db = firebase.firestore();
+  document.getElementById('status').textContent = "Connected to cloud ✅";
+  auth.onAuthStateChanged(u=>{
+    currentUser=u;
+    document.getElementById('userInfo').textContent=u?`Hi, ${u.displayName||u.email} ✨`:'';
+    document.getElementById('logoutBtn').classList.toggle('hidden',!u);
+    document.getElementById('authBtn').style.display=u?'none':'inline-block';
+  });
+  db.collection('poems').orderBy('createdAt','desc').limit(100).onSnapshot(snap=>{
+    allPoems=snap.docs.map(d=>({id:d.id,...d.data()}));
+    renderLocal();
+  });
+}
+
+function showTab(t){
+  document.getElementById('signupForm').style.display=t==='signup'?'block':'none';
+  document.getElementById('loginForm').style.display=t==='login'?'block':'none';
+  document.getElementById('tabSignup').classList.toggle('active',t==='signup');
+  document.getElementById('tabLogin').classList.toggle('active',t==='login');
+}
+async function signup(){
+  if(!isConfigured){alert('Add your Firebase keys first - see setup steps!');return}
+  const name=document.getElementById('suName').value.trim();
+  const email=document.getElementById('suEmail').value.trim();
+  const pass=document.getElementById('suPass').value;
+  try{
+    const c=await auth.createUserWithEmailAndPassword(email,pass);
+    await c.user.updateProfile({displayName:name||email.split('@')[0]});
+    location.reload();
+  }catch(e){document.getElementById('authMsg').textContent=e.message}
+}
+async function login(){
+  if(!isConfigured){alert('Add your Firebase keys first!');return}
+  try{await auth.signInWithEmailAndPassword(document.getElementById('liEmail').value.trim(),document.getElementById('liPass').value);location.reload();}
+  catch(e){document.getElementById('authMsg').textContent=e.message}
+}
+async function logout(){await auth.signOut();location.reload()}
+async function publishPoem(){
+  if(!currentUser){alert('Please sign up / log in first!');return}
+  const title=document.getElementById('poemTitle').value.trim()||'Untitled';
+  const text=document.getElementById('poemText').value.trim();
+  if(!text){alert('Write something first!');return}
+  await db.collection('poems').add({title,text,authorName:currentUser.displayName||currentUser.email,authorUid:currentUser.uid,likes:[],createdAt:firebase.firestore.FieldValue.serverTimestamp(),date:new Date().toLocaleDateString()});
+  document.getElementById('poemTitle').value='';document.getElementById('poemText').value='';
+  alert('Published! 🎉');
+}
+async function toggleLike(id,likes){
+  if(!currentUser){alert('Log in to like!');return}
+  const ref=db.collection('poems').doc(id);
+  if(likes.includes(currentUser.uid)){await ref.update({likes:firebase.firestore.FieldValue.arrayRemove(currentUser.uid)})}
+  else{await ref.update({likes:firebase.firestore.FieldValue.arrayUnion(currentUser.uid)})}
+}
+async function deletePoem(id){if(confirm('Delete?'))await db.collection('poems').doc(id).delete()}
+function renderLocal(){
+  const q=(document.getElementById('search').value||'').toLowerCase();
+  const feed=document.getElementById('feed');feed.innerHTML='';
+  if(!isConfigured){feed.innerHTML='<div class="card">Complete setup steps below to load shared poems.</div>';return}
+  const f=allPoems.filter(p=>(p.title||'').toLowerCase().includes(q)||(p.text||'').toLowerCase().includes(q));
+  if(!f.length){feed.innerHTML='<div class="card">No poems yet. Be the first! 🌸</div>';return}
+  f.forEach(p=>{
+    const liked=currentUser&&p.likes&&p.likes.includes(currentUser.uid);
+    const canDel=currentUser&&currentUser.uid===p.authorUid;
+    const d=document.createElement('div');d.className='card';
+    d.innerHTML=`<h3>${esc(p.title||'Untitled')}</h3><div class="meta">by ${esc(p.authorName||'Anonymous')} • ${esc(p.date||'')}</div><div class="poem-text">${esc(p.text||'')}</div><div class="actions"><button class="like-btn btn-small ${liked?'liked':''}">❤️ ${(p.likes||[]).length}</button>${canDel?'<button class="btn-small">Delete</button>':''}</div>`;
+    d.querySelector('.like-btn').onclick=()=>toggleLike(p.id,p.likes||[]);
+    if(canDel)d.querySelectorAll('button')[1].onclick=()=>deletePoem(p.id);
+    feed.appendChild(d);
+  });
+}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+</script>
+<script>window.__CF$cv$params={r:'a4f27e9b394924ee',t:'MTc5Mjc3Njg4Nw==',u:'01a169d45dd1765cb1bd12e2b4e5a513',ut:'8l1rrzhJpr5owwk_EVvaQeQwZrkoryrtQVBt4FYvkDc-1792776887-1.2.1.1-yV5k7gtLf2jkIRXvYvr5s3W7T8l5vlacFVLiejKf7ocLY7aaRnsGgfyW96B.nlXy6u5ODyiZJf5.UwsRNmAkC7fflvCEarTtA1K6M.gPKAE',i:60};(function(){if(!document.body)return;var s=document.createElement('script');s.src='/cdn-cgi/challenge-platform/scripts/precursor/main.js';document.head.appendChild(s);})();</script></body>
+</html>
